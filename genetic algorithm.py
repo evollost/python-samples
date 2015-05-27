@@ -69,7 +69,7 @@ def selection(pop, fitvalue): #自然选择
     newfitvalue = []
     totalfit = sum(fitvalue)
     for i in range(len(fitvalue)):
-        newfitvalue.append(fitvalue[i] / totalfit)
+        newfitvalue.append(fitvalue[i] / totalfit) #to-do:ZeroDivisionError
     cumsum(newfitvalue)
     ms = []
     for i in range(len(pop)):
