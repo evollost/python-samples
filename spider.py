@@ -1,99 +1,71 @@
-import HTMLParser
-import time
-import urlparse
-from datetime import timedelta
+#-*-coding:utf-8-*-
+'''
+基本百度图片简单爬虫,直接正则采集,且未采用线程,队列等
+1.爬取<img>标签内图片地址,存放于extra_img.txt
+2.爬取搜索结果的展示前十页的图片地址,存放于real_img.txt
+3.爬取所有<a>标签的地址信息,存放于a_href.txt
+'''
+import re
+import urllib2
 
-from tornado import httpclient, gen, ioloop, queues
+class BaiduImgSpider():
+    def __init__(self):
+        self.url = "http://pic.baidu.com/search/index?tn=baiduimage&ie=utf-8&word=%E6%B1%BD%E8%BD%A6"
+        self.eimg = {}
+        self.rimg = {}
+        self.ahref = {}
 
-base_url = 'http://www.tornadoweb.org/en/stable/'
-concurrency = 10
-
-
-@gen.coroutine
-def get_links_from_url(url):
-    """Download the page at `url` and parse it for links.
-
-    Returned links have had the fragment after `#` removed, and have been made
-    absolute so, e.g. the URL 'gen.html#tornado.gen.coroutine' becomes
-    'http://www.tornadoweb.org/en/stable/gen.html'.
-    """
-    try:
-        response = yield httpclient.AsyncHTTPClient().fetch(url)
-        print('fetched %s' % url)
-        urls = [urlparse.urljoin(url, remove_fragment(new_url))
-                for new_url in get_links(response.body)]
-    except Exception as e:
-        print('Exception: %s %s' % (e, url))
-        raise gen.Return([])
-
-    raise gen.Return(urls)
-
-
-def remove_fragment(url):
-    scheme, netloc, url, params, query, fragment = urlparse.urlparse(url)
-    return urlparse.urlunparse((scheme, netloc, url, params, query, ''))
-
-
-def get_links(html):
-    class URLSeeker(HTMLParser.HTMLParser):
-        def __init__(self):
-            HTMLParser.HTMLParser.__init__(self)
-            self.urls = []
-
-        def handle_starttag(self, tag, attrs):
-            href = dict(attrs).get('href')
-            if href and tag == 'a':
-                self.urls.append(href)
-
-    url_seeker = URLSeeker()
-    url_seeker.feed(html)
-    return url_seeker.urls
-
-
-@gen.coroutine
-def main():
-    q = queues.Queue()
-    start = time.time()
-    fetching, fetched = set(), set()
-
-    @gen.coroutine
-    def fetch_url():
-        current_url = yield q.get()
+    def get_page(self):
         try:
-            if current_url in fetching:
-                return
+            page = urllib2.urlopen(self.url).read()
+        except urllib2.URLError, e:
+            if hasattr(e, "code"):                       
+                print "The server couldn't fulfill the request."
+                print "Error code: ", e.code
+            elif hasattr(e, "reason"):
+                print "Failed to reach the server."
+                print "Reason: ", e.reason
+        return page
+    
+    def find_a_href(self, page):
+        '''
+        舍弃href="#"以及href="javascript(...)"的结果
+        '''
+        pattern = re.compile(r'<a.*?href="((?!javascript:)(?!\#).*?)"')
+        list_ahref = pattern.findall(page , re.S)
+        self.ahref = set(list_ahref)
+        save_result(self.ahref, "a_href.txt")
+     
+    def find_img_src(self, page):
+        pattern = re.compile(r'<img.*?src="(.*?)"')
+        list_imgsrc = pattern.findall(page, re.S)
+        self.imgsrc = set(list_imgsrc)
+        save_result(self.imgsrc, "extra_img.txt")
+    
+    def find_real_img(self, page):
+        pattern = re.compile(r'"hoverURL":"(.*?)"')
+        list_realimg = pattern.findall(page, re.S)
+        self.realimg = set(list_realimg)
+        save_result(self.realimg, "real_img.txt")
 
-            print('fetching %s' % current_url)
-            fetching.add(current_url)
-            urls = yield get_links_from_url(current_url)
-            fetched.add(current_url)
+    def start_spider(self):
+        page = self.get_page()
+        self.find_a_href(page)
+        self.find_img_src(page)
+        self.find_real_img(page)
 
-            for new_url in urls:
-                # Only follow links beneath the base URL
-                if new_url.startswith(base_url):
-                    yield q.put(new_url)
+def save_result(data, name):
+    file_name = name
+    with open(file_name, 'w') as result_file:
+        for element in data:
+            result_file.write(element + '\n')
 
-        finally:
-            q.task_done()
+def main():
+    spider = BaiduImgSpider()
+    spider.start_spider()
+    print "成功抓取href链接数: ", len(spider.ahref)
+    print "成功抓取图片地址数: ", len(spider.imgsrc)
+    print "成功抓取真实图片数: ", len(spider.realimg)
 
-    @gen.coroutine
-    def worker():
-        while True:
-            yield fetch_url()
-
-    q.put(base_url)
-
-    # Start workers, then wait for the work queue to be empty.
-    for _ in range(concurrency):
-        worker()
-    yield q.join(timeout=timedelta(seconds=300))
-    assert fetching == fetched
-    print('Done in %d seconds, fetched %s URLs.' % (
-        time.time() - start, len(fetched)))
-
-
-if __name__ == '__main__':
-    import logging
-    logging.basicConfig()
-    io_loop = ioloop.IOLoop.current()
-    io_loop.run_sync(main)
+if __name__ == "__main__":
+    main()
