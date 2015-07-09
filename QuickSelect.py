@@ -5,6 +5,9 @@
 import random
 
 def QuickSelect(list, k):
+    '''
+    快速选择，找出第k大的数
+    '''
     list_small = []
     list_large = []
     pivot = random.choice(list)
